@@ -1,6 +1,7 @@
 ---
 name: starknet-js
-description: "Guide for building Starknet applications using starknet.js v9.x SDK. Use when developing Starknet dApps, interacting with smart contracts, managing accounts, handling transactions, estimating fees, integrating browser wallets, or working with Paymaster for sponsored/alternative gas token transactions. Triggers include creating/deploying Starknet accounts, reading/writing smart contracts, multicall batching, fee estimation with resource bounds, WalletAccount browser integration, Paymaster gas sponsorship, and message signing with SNIP-12."
+description: "Guide for building Starknet applications using starknet.js v9.x SDK. Use when developing Starknet dApps, interacting with smart contracts, managing accounts, handling transactions, estimating fees, integrating browser wallets, or working with Paymaster for sponsored/alternative gas token transactions. Triggers include creating/deploying Starknet accounts, reading/writing smart contracts, multicall batching, fee estimation with resource bounds, WalletAccount browser integration, Paymaster gas sponsorship, message signing with SNIP-12, typed contracts, transaction simulation, and ERC-20/ERC-721 token operations."
+compatibility: "Node.js 18+, TypeScript 5+, npm package: starknet@^9.0.0"
 ---
 
 # starknet.js v9.x SDK
@@ -55,8 +56,10 @@ const provider = await RpcProvider.create({
 const chainId = await provider.getChainId();
 const block = await provider.getBlock('latest');
 const nonce = await provider.getNonceForAddress(accountAddress);
-const balance = await provider.getBalance(accountAddress);
 await provider.waitForTransaction(txHash);
+
+// Read storage directly
+const value = await provider.getStorageAt(contractAddress, storageKey);
 ```
 
 ## Account Management
@@ -115,6 +118,14 @@ const contract = new Contract(abi, contractAddress, provider);  // Read-only
 const contract = new Contract(abi, contractAddress, account);   // Read-write
 ```
 
+### Typed Contract (Type-Safe)
+
+```typescript
+// Get full TypeScript autocomplete and type checking from ABI
+const typedContract = contract.typedv2(abi);
+const balance = await typedContract.balanceOf(userAddress);
+```
+
 ### Read State
 
 ```typescript
@@ -168,6 +179,26 @@ const events = contract.parseEvents(receipt);
 const transferEvents = contract.parseEvents(receipt, 'Transfer');
 ```
 
+## Transaction Simulation
+
+Simulate before executing to catch reverts and inspect state changes:
+
+```typescript
+const simResult = await account.simulateTransaction(
+  [{ type: 'INVOKE', payload: calls }],
+  { skipValidate: false }
+);
+
+console.log('Fee estimate:', simResult[0].fee_estimation);
+console.log('Trace:', simResult[0].transaction_trace);
+
+// Check state changes before execution
+const trace = simResult[0].transaction_trace;
+if (trace?.state_diff) {
+  console.log('Storage changes:', trace.state_diff.storage_diffs);
+}
+```
+
 ## Fee Estimation
 
 ```typescript
@@ -193,6 +224,23 @@ With priority tip:
 ```typescript
 const tipStats = await provider.getEstimateTip();
 const tx = await account.execute(calls, { tip: tipStats.percentile_75 });
+```
+
+## Transaction Receipt Handling
+
+```typescript
+const receipt = await provider.waitForTransaction(txHash);
+
+// Status check helpers
+if (receipt.isSuccess()) {
+  console.log('Transaction succeeded');
+} else if (receipt.isReverted()) {
+  console.log('Reverted:', receipt.revert_reason);
+} else if (receipt.isRejected()) {
+  console.log('Rejected');
+} else if (receipt.isError()) {
+  console.log('Error');
+}
 ```
 
 ## Wallet Integration
@@ -284,6 +332,11 @@ cairo.felt('0x123')           // hex to felt
 cairo.bool(true)              // Cairo bool
 cairo.byteArray('Hello')      // ByteArray for long strings
 
+// Short strings (<= 31 chars)
+import { shortString } from 'starknet';
+shortString.encodeShortString('hello')  // felt252
+shortString.decodeShortString('0x...')  // 'hello'
+
 // Enums and Options
 const myEnum = new CairoCustomEnum({ Variant1: { value: 123 } });
 const some = new CairoOption(CairoOptionVariant.Some, value);
@@ -320,7 +373,19 @@ const { transaction_hash, contract_address } = await account.deploy({
   unique: true
 });
 
-// Declare and deploy
+// Declare first, then deploy
+const declareResponse = await account.declare({
+  contract: compiledSierra,
+  casm: compiledCasm
+});
+await provider.waitForTransaction(declareResponse.transaction_hash);
+
+const deployResponse = await account.deploy({
+  classHash: declareResponse.class_hash,
+  constructorCalldata: CallData.compile({ owner: account.address })
+});
+
+// Or combined
 const result = await account.declareAndDeploy({
   contract: compiledContract,
   casm: compiledCasm,
@@ -347,6 +412,34 @@ const result = await executorAccount.executeFromOutside(outsideTransaction);
 
 See `references/advanced-patterns.md` for detailed SNIP-9 patterns.
 
+## Fast Execute (Gaming)
+
+For latency-sensitive applications:
+
+```typescript
+const result = await account.fastExecute(
+  calls,
+  { /* details */ },
+  { retryInterval: 1000, maxRetries: 5 }
+);
+
+console.log('TX Hash:', result.transaction_hash);
+console.log('Status:', result.status);
+```
+
+## Logging & Configuration
+
+```typescript
+import { config, setLogLevel } from 'starknet';
+
+// Global config
+config.set('transactionVersion', '0x3');
+config.get('transactionVersion');
+
+// Logging
+setLogLevel('DEBUG');  // ERROR | WARN | INFO | DEBUG
+```
+
 ## Error Handling
 
 ```typescript
@@ -367,6 +460,8 @@ try {
 
 - `references/account-types.md` - Class hashes for ArgentX, Braavos, OpenZeppelin
 - `references/calldata.md` - Complex type handling, structs, enums, arrays
-- `references/advanced-patterns.md` - Events, SNIP-9, Ledger, WebSocket
-- `references/configuration.md` - Global config options
+- `references/advanced-patterns.md` - Events, SNIP-9, Ledger, simulation, merkle trees
+- `references/configuration.md` - Global config options, provider/account options
+- `references/erc-patterns.md` - ERC-20 and ERC-721 token patterns
 - `assets/snippets/` - Ready-to-use code templates
+- `scripts/` - CLI utilities for fee estimation and address computation

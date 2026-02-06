@@ -19,9 +19,24 @@ config.get('transactionVersion');
 config.set('rpcVersion', '0.10.0');
 config.get('rpcVersion');
 
-// Default tip type for fee estimates
-config.set('defaultTipType', 'strk');  // 'strk' | 'fri'
-config.get('defaultTipType');
+// Legacy mode for V1 transactions
+config.set('legacyMode', true);
+config.get('legacyMode');
+```
+
+## Logging
+
+```typescript
+import { setLogLevel, getLogLevel } from 'starknet';
+
+// Set log level
+setLogLevel('DEBUG');   // Most verbose
+setLogLevel('INFO');
+setLogLevel('WARN');
+setLogLevel('ERROR');   // Least verbose
+
+// Check current level
+const level = getLogLevel();
 ```
 
 ## RpcProvider Options
@@ -246,23 +261,6 @@ const paymaster = new PaymasterRpc({
 });
 ```
 
-## Logging
-
-### Enable Debug Logging
-
-```typescript
-import { logger } from 'starknet';
-
-logger.enable();  // Enable all logging
-logger.disable(); // Disable logging
-
-// Log levels
-logger.setLevel('debug');
-logger.setLevel('info');
-logger.setLevel('warn');
-logger.setLevel('error');
-```
-
 ## Environment Variables
 
 Common patterns for configuration:
@@ -306,7 +304,6 @@ const account = new Account({
 ```typescript
 // waitForTransaction defaults
 const RETRY_INTERVAL = 5000;  // 5 seconds
-const MAX_WAIT_TIME = 300000; // 5 minutes
 
 // Custom implementation
 async function waitWithCustomTimeout(provider, txHash, timeout = 60000) {
@@ -315,7 +312,7 @@ async function waitWithCustomTimeout(provider, txHash, timeout = 60000) {
   while (Date.now() - startTime < timeout) {
     try {
       const receipt = await provider.getTransactionReceipt(txHash);
-      if (receipt.finality_status === 'ACCEPTED_ON_L2') {
+      if (receipt.isSuccess()) {
         return receipt;
       }
     } catch {

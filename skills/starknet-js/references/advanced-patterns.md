@@ -157,48 +157,6 @@ try {
 }
 ```
 
-## WebSocket Provider
-
-### Real-time Block Updates
-
-```typescript
-import { RpcProvider } from 'starknet';
-
-const provider = await RpcProvider.create({
-  nodeUrl: 'https://...',
-  blockIdentifier: 'pre_confirmed'  // Get pre-confirmed blocks
-});
-
-// Subscribe to new blocks (requires WebSocket-enabled RPC)
-async function subscribeToBlocks() {
-  let lastBlock = await provider.getBlockNumber();
-
-  setInterval(async () => {
-    const currentBlock = await provider.getBlockNumber();
-    if (currentBlock > lastBlock) {
-      console.log('New block:', currentBlock);
-      lastBlock = currentBlock;
-    }
-  }, 3000);  // Poll every 3 seconds
-}
-```
-
-## Batch Requests
-
-### Execute Multiple RPC Calls
-
-```typescript
-import { batch } from 'starknet';
-
-const results = await provider.batchRequest([
-  { method: 'starknet_blockNumber', params: [] },
-  { method: 'starknet_chainId', params: [] },
-  { method: 'starknet_getNonce', params: [{ block_id: 'latest' }, accountAddress] }
-]);
-
-const [blockNumber, chainId, nonce] = results;
-```
-
 ## Transaction Simulation
 
 ### Simulate Before Execute
@@ -225,10 +183,7 @@ if (simResult[0].transaction_trace) {
 ```typescript
 const simResult = await account.simulateTransaction(
   [{ type: 'INVOKE', payload: calls }],
-  {
-    skipValidate: false,
-    // Get state changes
-  }
+  { skipValidate: false }
 );
 
 // Check state changes before execution
@@ -348,12 +303,10 @@ class MultiSigSigner implements SignerInterface {
   }
 
   async getPubKey(): Promise<string> {
-    // Return combined public key or first signer's key
     return this.signers[0].getPubKey();
   }
 
   async signTransaction(calls, details): Promise<Signature> {
-    // Collect signatures from threshold signers
     const signatures: Signature[] = [];
 
     for (let i = 0; i < this.threshold; i++) {
@@ -361,7 +314,6 @@ class MultiSigSigner implements SignerInterface {
       signatures.push(sig);
     }
 
-    // Combine signatures (format depends on account implementation)
     return this.combineSignatures(signatures);
   }
 
@@ -370,7 +322,7 @@ class MultiSigSigner implements SignerInterface {
     return sigs.flat();
   }
 
-  // Implement other methods...
+  // Implement other SignerInterface methods...
 }
 ```
 
@@ -415,12 +367,11 @@ async function waitWithTimeout(
     try {
       const receipt = await provider.getTransactionReceipt(txHash);
 
-      if (receipt.finality_status === 'ACCEPTED_ON_L2' ||
-          receipt.finality_status === 'ACCEPTED_ON_L1') {
+      if (receipt.isSuccess()) {
         return receipt;
       }
 
-      if (receipt.execution_status === 'REVERTED') {
+      if (receipt.isReverted()) {
         throw new Error(`Transaction reverted: ${receipt.revert_reason}`);
       }
     } catch (error) {
@@ -443,25 +394,17 @@ async function waitWithTimeout(
 ```typescript
 import { src5 } from 'starknet';
 
-// Check if contract supports ERC-721
-const supportsERC721 = await src5.supportsInterface(
+// Check if contract supports a specific interface
+const supportsInterface = await src5.supportsInterface(
   provider,
   contractAddress,
-  '0x...'  // ERC-721 interface ID
+  interfaceId  // BigNumberish
 );
-
-// Common interface IDs
-const INTERFACE_IDS = {
-  SRC5: '0x3f918d17e5ee77373b56385708f855659a07f75997f365cf87748628532a055',
-  SRC6: '0x2ceccef7f994940b3962a6c67e0ba4fcd37df7d131417c604f91e03caecc1cd',
-  ERC721: '0x...',
-  ERC1155: '0x...'
-};
 ```
 
 ## Merkle Tree Utilities
 
-### Create Merkle Proof
+### Create Merkle Tree
 
 ```typescript
 import { merkle } from 'starknet';
@@ -483,9 +426,9 @@ const proof = tree.getProof('0x222...');
 ### Verify Merkle Proof
 
 ```typescript
-const isValid = merkle.verifyProof(
-  '0x222...',  // leaf
+const isValid = merkle.proofMerklePath(
   root,        // merkle root
+  '0x222...',  // leaf
   proof        // proof array
 );
 ```
@@ -534,34 +477,4 @@ await Promise.all([
   provider.waitForTransaction(tx1.transaction_hash),
   provider.waitForTransaction(tx2.transaction_hash)
 ]);
-```
-
-## State Synchronization
-
-### Compare On-Chain vs Local State
-
-```typescript
-async function syncState(contract: Contract, localState: Map<string, any>) {
-  const contractState = new Map();
-
-  // Read relevant state from contract
-  const owner = await contract.owner();
-  const totalSupply = await contract.total_supply();
-
-  contractState.set('owner', owner);
-  contractState.set('totalSupply', totalSupply);
-
-  // Compare and update local state
-  for (const [key, value] of contractState) {
-    if (localState.get(key) !== value) {
-      console.log(`State mismatch for ${key}:`, {
-        local: localState.get(key),
-        onChain: value
-      });
-      localState.set(key, value);
-    }
-  }
-
-  return localState;
-}
 ```
